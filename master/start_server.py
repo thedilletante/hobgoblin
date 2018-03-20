@@ -20,7 +20,7 @@ def create_base_message(source: str, type: str, payload: object):
     }, indent=4)
 
 
-def from_master(type: str, payload: object):
+def from_master(type: str, payload: object = None):
     return create_base_message("master", type, payload)
 
 
@@ -34,6 +34,10 @@ def start_streaming_message(url):
     return from_master("StartStreaming", {
         "url": url
     })
+
+
+def error_message():
+    return from_master("UnexpectedMessage")
 
 
 def get_element(message: object, element: str, tag: str):
@@ -62,7 +66,28 @@ def message_payload(message: object):
     return None if "payload" not in message else message["payload"]
 
 
+def start_streaming_player(port: int, file: str):
+    cmd = [
+        "file://{}".format(file),
+        "sout=#duplicate{dst=rtp{dst=127.0.0.1,port=" + str(port) + "}}",
+        "no-sout-rtp-sap",
+        "no-sout-standard-sap",
+        "sout-keep"
+    ]
+    d("start streaming with arguments: {}".format(cmd))
+    vlc = VLC()
+    media = vlc.media_new(*cmd)
+    media.get_mrl()
+
+    player = vlc.media_player_new()
+    player.set_media(media)
+    player.play()
+
+    return player
+
+
 start_port = 1234
+
 
 class Client:
 
@@ -88,24 +113,10 @@ class Client:
                     global start_port
                     port = start_port
                     start_port += 1
-                    cmd = [
-                        "file://{}".format(file.absolute()),
-                        "sout=#duplicate{dst=rtp{dst=127.0.0.1,port=" + str(port) + "}}",
-                        "no-sout-rtp-sap",
-                        "no-sout-standard-sap",
-                        "sout-keep"
-                    ]
-                    d("start streaming with arguments: {}".format(cmd))
-                    vlc = VLC()
-                    media = vlc.media_new(*cmd)
-                    media.get_mrl()
-
-                    player = vlc.media_player_new()
-                    player.set_media(media)
-                    player.play()
-
-                    self.player = player
+                    self.player = start_streaming_player(port, file.absolute())
                     await self.connection.send(start_streaming_message("rtp://127.0.0.1:{}".format(port)))
+                else:
+                    await self.connection.send(error_message())
             else:
                 # just echo
                 await self.connection.send(message)
