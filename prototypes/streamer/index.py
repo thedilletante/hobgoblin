@@ -10,6 +10,7 @@ ydl_opts = {}
 
 # HOW TO:
 # start:
+# > virtualenv -p python3 venv # in case of fresh start
 # > source venv/bin/activate
 # > pip install -r requirements.txt
 # > export FLASK_APP=index.py
