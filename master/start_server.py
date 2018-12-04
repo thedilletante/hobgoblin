@@ -1,7 +1,10 @@
-from asyncio import get_event_loop
+from asyncio import get_event_loop, sleep
 from logging import debug as d, basicConfig, DEBUG, StreamHandler
 from json import loads, dumps
 from uuid import uuid4, UUID
+
+from aiogram.utils import executor, context
+from aiogram.utils.executor import _startup
 from websockets import \
     WebSocketClientProtocol as Connection, \
     ConnectionClosed, \
@@ -9,12 +12,33 @@ from websockets import \
 from vlc import Instance as VLC
 from pathlib import Path
 
+from aiogram import Bot, types
+from aiogram.dispatcher import Dispatcher
+
+
+# t.me/hobgoblin_testbot
+bot = Bot(token='592793492:AAH92wmIF-_hN2k9DoHlWjyAGlKpbEqEcrY')
+dp = Dispatcher(bot)
+
+
+@dp.message_handler(commands=['start', 'help'])
+async def send_welcome(message: types.Message):
+    await message.reply("Hi!\nI'm Hobgoblin!\nType /audio <path_to_file> for streaming.")
+
+
+@dp.message_handler(commands=['startstream', 'stream', 'audio'])
+async def start_stream(message: types.Message):
+    path = message.get_args()
+    for client in clients:
+        await client.start_stream(path)
+    await message.reply("Starting audio stream... file:{}".format(path))
+
 
 def create_base_message(source: str, type: str, payload: object):
     return dumps({
         "header": {
             "source": source,
-            "type": type
+            "action": type
         },
         "payload": payload
     }, indent=4)
@@ -32,7 +56,7 @@ def registered_message(uuid: UUID):
 
 def start_streaming_message(url):
     return from_master("StartStreaming", {
-        "url": url
+        "mrl": url
     })
 
 
@@ -55,7 +79,7 @@ def get_payload_element(message: object, tag: str):
 
 
 def message_type(message: object):
-    return get_header_element(message, "type")
+    return get_header_element(message, "action")
 
 
 def message_source(message: object):
@@ -106,11 +130,11 @@ class Client:
                 raise ConnectionClosed
             await self.connection.send(registered_message(uuid4()))
             self.registered = True
+
         else:
             if type == "Stream":
                 file = Path(get_payload_element(message, "path"))
                 if file.is_file():
-                    global start_port
                     port = start_port
                     start_port += 1
                     self.player = start_streaming_player(port, file.absolute())
@@ -130,23 +154,47 @@ class Client:
                 raise ConnectionClosed
             await self.on_message(decoded)
 
+    async def start_stream(self, path):
+        file = Path(path)
+        if file.is_file():
+            global start_port
+            port = start_port
+            start_port += 1
+            self.player = start_streaming_player(port, file.absolute())
+            await self.connection.send(start_streaming_message("rtp://127.0.0.1:{}".format(port)))
+        else:
+            await self.connection.send(error_message())
+
+
+clients = []
+
 
 async def client_connected(connection: Connection, path):
     try:
-        await Client(connection).run()
+        cl = Client(connection)
+        clients.append(cl)
+        await cl.run()
     except ConnectionClosed:
         d("Client {} closed the connection".format(connection.remote_address))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     basicConfig(level=DEBUG, handlers=[StreamHandler()])
 
+    get_event_loop().set_task_factory(context.task_factory)
     host = ""
     port = 5678
 
     try:
+
+        get_event_loop().run_until_complete(_startup(dp, None, None))
+        d("Started telegram bot")
+
+        get_event_loop().create_task(dp.start_polling(reset_webhook=True))
+
         get_event_loop().run_until_complete(serve(client_connected, host, port))
-        d("Started game server: {}:{}".format(host, port))
+        d("Started master instance at {}:{}".format(host, port))
+
         get_event_loop().run_forever()
     except KeyboardInterrupt:
-        d("The game server was shut")
+        d("The master instance was shut")

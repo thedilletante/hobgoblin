@@ -38,7 +38,7 @@ def consumer(_message):
     if json_data['header']['action'] == 'Register':
         handle_register(json_data)
 
-    if json_data['header']['action'] == 'StreamStarted':
+    if json_data['header']['action'] == 'StartStreaming':
         handle_stream_started(json_data)
 
 
@@ -55,6 +55,6 @@ async def receiver(_ws):
 
 ws = input("ws: ")
 if len(ws) == 0:
-    ws = "ws://localhost:8765"
+    ws = "ws://localhost:5678"
 
 asyncio.get_event_loop().run_until_complete(receiver(ws))
